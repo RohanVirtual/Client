@@ -8,6 +8,8 @@ function Chat() {
   const [messageInput, setMessageInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [username, setUsername] = useState("");
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [isTyping, setIsTyping] = useState(false);
 
   useEffect(() => {
     const onMessage = (message) => {
@@ -16,9 +18,28 @@ function Chat() {
 
     socket.on("message", onMessage);
 
+    const onTypingStart = ({ username: otherUsername, senderId } = {}) => {
+      if (!otherUsername) return;
+      if (senderId && senderId === socket.id) return;
+      setTypingUsers((prev) =>
+        prev.includes(otherUsername) ? prev : [...prev, otherUsername]
+      );
+    };
+
+    const onTypingStop = ({ username: otherUsername, senderId } = {}) => {
+      if (!otherUsername) return;
+      if (senderId && senderId === socket.id) return;
+      setTypingUsers((prev) => prev.filter((u) => u !== otherUsername));
+    };
+
+    socket.on("typing:start", onTypingStart);
+    socket.on("typing:stop", onTypingStop);
+
     return () => {
       // Cleanup on component unmount
       socket.off("message", onMessage);
+      socket.off("typing:start", onTypingStart);
+      socket.off("typing:stop", onTypingStop);
     };
   }, []);
 
@@ -40,11 +61,39 @@ function Chat() {
 
   const sendMessage = () => {
     if (messageInput.trim() !== "" && username) {
+      if (isTyping) {
+        socket.emit("typing:stop", { username });
+        setIsTyping(false);
+      }
       const message = { text: messageInput, timestamp: new Date(), username };
       socket.emit("message", message);
       setMessageInput("");
     }
   };
+
+  useEffect(() => {
+    if (!username) return;
+
+    if (!messageInput.trim()) {
+      if (isTyping) {
+        socket.emit("typing:stop", { username });
+        setIsTyping(false);
+      }
+      return;
+    }
+
+    if (!isTyping) {
+      socket.emit("typing:start", { username });
+      setIsTyping(true);
+    }
+
+    const t = setTimeout(() => {
+      socket.emit("typing:stop", { username });
+      setIsTyping(false);
+    }, 900);
+
+    return () => clearTimeout(t);
+  }, [messageInput, username, isTyping]);
 
   if (!username) {
     return (
@@ -107,6 +156,13 @@ function Chat() {
                 </span>
               </div>
             ))}
+          </div>
+          <div className="h-5 px-2 text-xs text-gray-600">
+            {typingUsers.length === 1
+              ? `${typingUsers[0]} is typing...`
+              : typingUsers.length > 1
+              ? `${typingUsers.join(", ")} are typing...`
+              : ""}
           </div>
           <div className="p-2 border-t border-gray-300">
             <div className="flex">
