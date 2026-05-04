@@ -10,6 +10,8 @@ function Chat() {
   const [username, setUsername] = useState("");
   const [typingUsers, setTypingUsers] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [showEmojis, setShowEmojis] = useState(false);
+  const [sendingFile, setSendingFile] = useState(false);
 
   useEffect(() => {
     const onMessage = (message) => {
@@ -65,10 +67,47 @@ function Chat() {
         socket.emit("typing:stop", { username });
         setIsTyping(false);
       }
-      const message = { text: messageInput, timestamp: new Date(), username };
+      const message = {
+        type: "text",
+        text: messageInput,
+        timestamp: new Date(),
+        username,
+      };
       socket.emit("message", message);
       setMessageInput("");
     }
+  };
+
+  const sendFile = (file) => {
+    if (!file || !username) return;
+
+    const MAX_FILE_BYTES = 2 * 1024 * 1024; // keep in sync with server
+    if (file.size > MAX_FILE_BYTES) {
+      alert("File too large (max 2MB).");
+      return;
+    }
+
+    setSendingFile(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      socket.emit("file", {
+        username,
+        timestamp: new Date(),
+        file: {
+          name: file.name,
+          mime: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrl,
+        },
+      });
+      setSendingFile(false);
+    };
+    reader.onerror = () => {
+      setSendingFile(false);
+      alert("Failed to read file.");
+    };
+    reader.readAsDataURL(file);
   };
 
   useEffect(() => {
@@ -149,7 +188,31 @@ function Chat() {
                       ? "You"
                       : msg.username || "Anonymous"}
                   </div>
-                  {msg.text}
+                  {msg.type === "file" && msg.file ? (
+                    <div className="space-y-2">
+                      <div className="text-sm opacity-90">{msg.file.name}</div>
+                      {typeof msg.file.mime === "string" &&
+                      msg.file.mime.startsWith("image/") ? (
+                        <a href={msg.file.dataUrl} target="_blank" rel="noreferrer">
+                          <img
+                            src={msg.file.dataUrl}
+                            alt={msg.file.name}
+                            className="max-h-40 rounded border border-white/20"
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          className="underline text-sm"
+                          href={msg.file.dataUrl}
+                          download={msg.file.name}
+                        >
+                          Download
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    msg.text
+                  )}
                 </div>
                 <span className="text-gray-500 text-xs">
                   {new Date(msg.timestamp).toLocaleTimeString()}
@@ -165,7 +228,49 @@ function Chat() {
               : ""}
           </div>
           <div className="p-2 border-t border-gray-300">
-            <div className="flex">
+            {showEmojis ? (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {["😀","😂","😍","🥳","😎","😭","😡","👍","🙏","❤️","🔥","🎉"].map((e) => (
+                  <button
+                    key={e}
+                    className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                    onClick={() => {
+                      setMessageInput((prev) => prev + e);
+                      setShowEmojis(false);
+                    }}
+                    type="button"
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex gap-2 items-center">
+              <button
+                type="button"
+                className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                onClick={() => setShowEmojis((v) => !v)}
+                title="Emojis"
+              >
+                🙂
+              </button>
+              <label
+                className={`px-3 py-2 bg-gray-200 rounded hover:bg-gray-300 cursor-pointer ${
+                  sendingFile ? "opacity-60 pointer-events-none" : ""
+                }`}
+                title="Send file (max 2MB)"
+              >
+                📎
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) sendFile(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
               <input
                 type="text"
                 className="w-full px-2 py-1 border rounded-l-md outline-none"
